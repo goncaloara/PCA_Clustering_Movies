@@ -1,0 +1,1943 @@
+---
+title: "PCA and Clustering - _MovieLens_ Dataset"
+subtitle: "PCA Analysis, K-Means, Hierarchical Clustering, DBSCAN and GMM"
+author: "Francisco Silva, Gonçalo Araújo"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 2
+    number_sections: false
+    extra_dependencies: ["microtype", "relsize"]
+    citation_package: natbib
+  html_document:
+    always_allow_html: true
+    toc: yes
+    toc_depth: 2
+    df_print: kable
+  pagedown::html_paged:
+    toc: yes
+    toc_depth: 2
+    df_print: kable
+    css: "style.css" 
+  word_document:
+    toc: yes
+    toc_depth: '2'
+always_allow_html: true
+header-includes:
+  - \AtBeginDocument{\scriptsize}
+  - \usepackage{etoolbox}
+  - \AtBeginEnvironment{verbatim}{\scriptsize}
+  - \AtBeginEnvironment{verbatim*}{\scriptsize}
+  - \newcommand{\blankline}{\vspace{\baselineskip}}
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, width = 80) 
+knitr::opts_chunk$set(comment = NA)
+```
+
+\newpage
+
+# 1.Introduction
+
+**Recommender Systems (RSs)** are software tools and techniques designed to suggest relevant items to users based on their preferences and past behavior [24].
+These systems are widely used in platforms like **Netflix**, which recommends movies and shows based on users’ viewing history, or **Cartão Continente**, where product suggestions are tailored to previous purchases [22].
+
+To explore the foundations of recommendation models, we selected the **MovieLens 100K dataset** [14], a widely used benchmark in recommendation system research.
+Hosted by **GroupLens** [20], this dataset contains **100,000 ratings from 1,000 users across 1,700 movies**, making it computationally manageable while still providing valuable insights into user preferences [20].
+
+As an initial step toward building a recommendation system, we apply **Principal Component Analysis (PCA) and clustering techniques** to uncover hidden patterns in user-movie interactions [5,15].
+PCA helps reduce dimensionality while preserving key information, allowing for more efficient analysis.
+Clustering techniques, such as **K-Means** or **Hierarchical Clustering**, enable us to group similar users or movies based on their rating behaviors [11,15].
+These techniques lay the groundwork for future recommendation models by identifying meaningful structures within the data.
+
+Specifically, these techniques will aid us build:
+
+-   **Personalized Recommendations:** By understanding the preferences of each cluster, we can tailor **movie recommendations** to align with the tastes of specific user groups, enhancing user satisfaction and engagement.
+
+-   **Targeted Marketing Strategies:** The **demographic and behavioral insights** derived from clustering enable the design of **targeted marketing campaigns**, ensuring that promotional content reaches the most relevant audience.
+
+-   **Content Optimization:** Insights into **genre preferences** can guide **content creation and acquisition strategies**, ensuring that the platform offers movies and shows that appeal to its diverse user base.
+
+## Dataset Description
+
+MovieLens data sets were collected by the GroupLens Research Project at the University of Minnesota [14] This data set consists of: 100,000 ratings (1-5) from 943 users on 1682 movies.
+• Each user has rated at least 20 movies.
+• Simple demographic info for the users (age, gender, occupation, zip) The data was collected through the MovieLens web site (movielens.umn.edu) during the seven-month period from September 19th,1997 through April 22nd, 1998.
+This data has been cleaned up - users who had less than 20 ratings or did not have complete demographicinformation were removed.
+The version used on this work has been downloaded from Kaggle [9].The original dataset consists of several text tab separated files, from which we used the following ones:
+
+**u.data** – The full u.data set, 100000 ratings by 943 users on 1682 items.
+Each user has rated at least 20 movies.
+Users and items are numbered consecutively from 1.
+The data is randomly ordered.This is a tab separated list of: user id \| item id \| rating \| timestamp.
+The time stamps are unix seconds since 1/1/1970 UTC
+
+**u.item** – Information about the items (movies); This is a tab separated list of: movie id \| movie title \| release date \| video release date \| IMDb URL \| unknown \| Action \| Adventure \| Animation \|Children’s \| Comedy \| Crime \| Documentary \| Drama \| Fantasy \|Film-Noir \| Horror \| Musical \| Mystery \| Romance \| Sci-Fi \| Thriller \| War \| Western \| .
+The last 19 fields are the genres, a 1 indicates the movie is of that genre, a 0 indicates it is not; Movies can be in several genres at once.The movie ids are the ones used in the u.data data set.
+
+**u.user** – Demographic information about the users; This is a tab separated list of: user id \| age \| gender \| occupation \| zip code.
+The user ids are the ones used in the u.data data set.
+
+Our analysis focuses on three key variables: age (the age of individuals who rated the movies), rating (the movie ratings themselves),gender, and genre (type of movie).
+
+
+```{r libs, echo=FALSE}
+library(ggplot2)
+library(cluster)
+library(factoextra)
+library(scatterplot3d)
+library(kableExtra)
+```
+
+\newpage 
+
+
+# 2.Loading Data
+
+Read the dataset (e.g., u.data, u.item, u.user) into R:
+
+```{r read}
+ratings <- read.table("data/ml-100k/u.data", sep="\t", 
+                      col.names=c("user_id", "item_id", "rating", "timestamp"))
+
+users <- read.table("data/ml-100k/u.user", sep="|", 
+                    col.names=c("user_id", "age", "gender", "occupation", "zip_code"))
+
+movies <- read.table("data/ml-100k/u.item", sep="|", 
+           col.names=c("item_id", "movie_title", "release_date", "video_release_date", 
+                 "IMDb_URL", "unknown", "Action", "Adventure", "Animation", "Children", 
+                 "Comedy", "Crime", "Documentary", "Drama", "Fantasy", "Film_Noir", 
+                 "Horror", "Musical", "Mystery", "Romance", "Sci_Fi", "Thriller", 
+                 "War", "Western"),
+             fill = TRUE, encoding = "latin1", quote="")
+
+```
+
+The next step is to merge the loaded data into a single dataframe, using the *R merge* function: \blankline
+
+```{r merge}
+merged_df <- merge(ratings, users, by = "user_id", all.x = TRUE)
+merged_df <- merge(merged_df, movies, by = "item_id", all.x = TRUE)
+```
+
+```{r}
+str(merged_df)
+```
+
+Let's inspect the data in order to understand its structure.
+View the first 500 rows:
+
+```{r}
+
+head(merged_df)
+```
+
+The dataframe consists of 100 000 observations of 31 variables, with the following data type/classes:
+
+```{r}
+data_types <- sapply(merged_df, class)
+data_type_count <- table(data_types)
+print(data_type_count)
+```
+
+# 3 - Data Transformation and Cleaning
+
+Since we will not be working with the following variables, as they are irrelevant to our analysis, and in order to reduce the number of columns to be analyzed, we will **remove** the following columns:
+
+-   **user_id**
+
+-   **item_id**
+
+-   **occupation**
+
+-   **zip_code**
+
+-   **release_date**
+
+-   **video_release_date**
+
+-   **IMDb_URL**
+
+```{r}
+
+# Select only numeric columns
+numeric_features <- merged_df[, sapply(merged_df, is.numeric)]
+
+# Remove the non-numeric columns manually
+numeric_features <- merged_df[, !colnames(merged_df) %in% c("user_id", "item_id", "occupation", 
+                                                           "movie_title", "release_date", 
+                                                           "timestamp", "zip_code", 
+                                                           "IMDb_URL", "video_release_date")]
+
+```
+
+### Convert categorical variables into numeric format.
+
+```{r}
+numeric_features$gender <- ifelse(numeric_features$gender == "M", 1, 0)
+```
+
+**Since our dataset contains 100,000 observations, computing PCA, K-means and Hierarchical Clustering on the entire dataset is computationally expensive**. [5,11]
+
+**In order to make the process more efficient, we will reduce the number of observations to 20,000 by uniformly sampling from the dataset.**
+
+
+```{r}
+set.seed(42)
+sample_size <- 20000  # Reduce data size
+df_final <- numeric_features[sample(1:nrow(numeric_features), sample_size), ]
+
+```
+
+```{r}
+str(df_final)
+```
+
+```{r}
+data_types <- sapply(df_final, class)
+data_type_count <- table(data_types)
+print(data_type_count)
+```
+
+our final dataset has 22 numerical variables.
+
+\newpage
+
+# 4 PCA Analysis
+
+```{r}
+scaled_features <- scale(df_final)  # Standardize features
+
+pca_result <- prcomp(scaled_features, center = TRUE, scale. = TRUE)
+
+summary(pca_result)  # View variance explained
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Plot the first two principal components to visualize the results
+biplot(pca_result, scale = 0)
+```
+
+Since we are doing PCA to reduce dimensionality before clustering, a 3D visualization of the first three principal components (PC1, PC2, PC3) colored by rating will help us understand how ratings are distributed in the transformed feature space.
+(**in the HTML version of the report the 3D plots are interactive**)
+
+
+
+```{r, fig.width=5, fig.height=4}
+pca_data <- data.frame(pca_result$x[, 1:3])  # Extract first 3 PCs
+pca_data$rating <- as.factor(df_final$rating)  # Convert rating to factor for coloring
+
+# Define colors based on rating
+rating_levels <- sort(unique(df_final$rating))  # Ensure sorted order
+rating_colors <- rainbow(length(rating_levels))  # Generate distinct colors
+colors <- rating_colors[as.numeric(pca_data$rating)]  # Assign colors to points
+
+
+# Create a static 3D plot using scatterplot3d
+s3d <- scatterplot3d(pca_data$PC1, pca_data$PC2, pca_data$PC3, 
+                     color = colors, pch = 19, 
+                     xlab = "PC1", ylab = "PC2", zlab = "PC3", 
+               
+                     main = "PCA: Rating Representation in PC1, PC2, PC3")
+
+# Optional: add a legend
+legend("topright", legend = rating_levels, pch = 19, col = rating_colors, title = "Ratings")
+
+```
+
+**In order to decide how Many PCA Components to retain**
+
+We will consider two different approaches [2,6,11,19]:
+
+1.  **The Kaiser Criterion**
+
+2.  **Cumulative Variance Explained**: Retaining components that explain a sufficient percentage (e.g., 90%) of the total variance, regardless of the eigenvalue threshold.
+
+## 4.1 The Kaiser Criterion
+
+is a rule of thumb used in Principal Component Analysis (PCA) for determining the number of principal components (PCs) to retain [11,23].
+
+It is based on the idea that we should only keep the components that explain a significant amount of variance in the data.
+
+The Kaiser Criterion suggests retaining only those principal components whose eigenvalues are greater than 1 [6,11}.
+
+Eigenvalues represent the amount of variance captured by each principal component.
+
+A component with an eigenvalue greater than 1 is considered to explain more variance than a single original variable (which has an eigenvalue of 1), and thus, it's deemed useful to retain.
+
+If a component has an eigenvalue less than 1, it means it is explaining less variance than one of the original variables, and therefore might not be worth retaining.
+
+```{r}
+
+# Get the eigenvalues (sdev squared)
+eigenvalues <- (pca_result$sdev)^2
+
+# Apply the Kaiser Criterion: Retain components with eigenvalue > 1
+components_to_retain <- which(eigenvalues > 1)
+
+# Number of components to retain
+num_components <- length(components_to_retain)
+
+# Print the components to retain and their eigenvalues
+cat("Number of components to retain:", num_components, "\n")
+
+k<- num_components # Critério de Kaiser
+pca_reduced <- as.data.frame(pca_result$x[, 1:k])  # Keep first 'k' principal components
+
+# Check dimensions
+dim(pca_reduced)  # Should be (num_samples, k)
+
+```
+
+## 4.2 Threshold Approach (95% Variance Explained)
+
+As an alternative we can select the smallest number of PCs that capture at least **90% of the total variance**.
+
+```{r}
+# Compute the proportion of variance explained by each principal component
+variance_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+
+# Compute the cumulative variance
+cumulative_variance <- cumsum(variance_explained)
+
+# Find the number of components that explain at least 90% of the variance
+num_components_90 <- which(cumulative_variance >= 0.90)[1]
+
+# Print results
+cat("Number of components needed to explain at least 90% variance:", num_components_90, "\n")
+
+```
+
+The Kaiser Criterion suggests retaining **9 components** (with eigenvalues greater than 1).
+
+This method helps eliminate noise and retain only significant PCs while avoiding redundant or less informative dimensions.
+
+This way, selecting 9 principal components (PCs) based on the Kaiser Criterion instead of 18 PCs covering 90% cumulative variance we are looking for a balance between dimensionality reduction, computational efficiency, and meaningful variance retention for clustering.
+
+\newpage
+
+# 5 Clustering on PCA Reduced (Kaiser criterium)
+
+In this case, retaining 9 PCs ensures that only the most informative, high-variance dimensions are used for clustering
+
+The second reason is **Computational Efficiency** for Hierarchical Clustering that we intend to do later.
+Hierarchical clustering is computationally expensive (O(n²) or worse complexity), making it impractical with high-dimensional data [2,3].
+
+Reducing from 19 to 9 PCs significantly reduces the computational load while preserving a high level of variance (though not exactly 90%).
+A lower-dimensional space (9D instead of 19D) results in faster distance calculations and lower memory usage.
+
+Also we are **Reducing Redundant Information** since The first few PCs often capture the most important structure of the data, while later PCs mostly capture small variations or noise.The Kaiser Criterion helps avoid overfitting by excluding components that contribute little meaningful structure for clustering.
+
+Thus, applying clustering on 9 PCA components is a better trade-off between information retention and computational feasibility, making hierarchical clustering more efficient and scalable.
+
+Now that we have reduced dimensionality with PCA, let’s perform clustering using K-Means, Hierarchical Clustering, DBSCAN and GMM
+
+## 5.1 K-Means Clustering
+
+K-Means clusters similar users or movies based on PCA-extracted features.
+
+**Determining the Optimal Number of Clusters (Elbow Method)**
+
+To identify the optimal number of clusters (K), we will use the Elbow Method.
+The Elbow Method is a technique used to determine the optimal number of clusters (K) in K-means clustering by analyzing the Within-Cluster Sum of Squares (WCSS) or total inertia.
+It helps balance cluster compactness and computational efficiency [11,15,27].
+
+The Total Within-Cluster Sum of Squares (WSS) is a key measure used to evaluate the quality of a clustering solution, specifically in the context of K-means clustering [11,17].
+
+In K-means clustering, the goal is to partition a dataset into $k$ clusters, where each point in the dataset is assigned to the cluster whose centroid is closest to the point [17].
+
+The Total Within-Cluster Sum of Squares measures how compact the clusters are, and it quantifies the variability of the points within each cluster.
+It is computed as the sum of squared distances between each data point and the centroid of its respective cluster [17,27].
+
+$$
+\text{WSS} = \sum_{i=1}^{k} \sum_{x \in C_i} (x - \mu_i)^2
+$$
+
+Where: - $\text{WSS}$ is the Total Within-Cluster Sum of Squares.
+
+-   $k$ is the number of clusters.
+
+-   $C_i$ represents the set of data points assigned to the $i^{th}$ cluster.
+
+-   $x$ is a data point.
+
+-   $\mu_i$ is the centroid (mean) of the $i^{th}$ cluster.
+
+A small total within-cluster sum of squares means that the points within each cluster are close to the centroid, suggesting that the clustering solution is tight and well-defined.
+The clusters are compact.
+Whereas, a larger WSS indicates that the points within each cluster are more spread out, suggesting that the clustering solution is less compact, and the clusters may not be well-separated or distinct [5,17].
+
+In the Elbow Method for determining the optimal number of clusters, we plot the WSS for different values of $k$ (the number of clusters).
+
+As the number of clusters increases, the WSS typically decreases because having more clusters will lead to each cluster containing fewer data points, making the points closer to the centroid.
+The "elbow" point on the graph, where the rate of decrease in WSS slows down, indicates the optimal number of clusters [17].
+
+This is the point where adding more clusters doesn't significantly improve the quality of the clustering (i.e., the reduction in WSS is marginal).
+
+```{r, fig.width=5, fig.height=4}
+
+library(ggplot2)
+
+# Use the Elbow Method to find the optimal number of clusters
+wss <- numeric(20)  # Store within-cluster sum of squares for 1 to 10 clusters
+for (i in 1:20) {
+  kmeans_temp <- kmeans(pca_reduced, centers = i, nstart = 25)
+  wss[i] <- kmeans_temp$tot.withinss
+}
+
+# Create a data frame to use for ggplot
+elbow_data <- data.frame(Clusters = 1:20, WSS = wss)
+
+# Create the Elbow plot using ggplot2 with integer x-axis labels
+ggplot(elbow_data, aes(x = Clusters, y = WSS)) +
+  geom_line() + 
+  geom_point() +
+  ggtitle("Elbow Method for Optimal Number of Clusters") +
+  xlab("Number of Clusters") + 
+  ylab("Total Within-Cluster Sum of Squares") +
+  scale_x_continuous(breaks = 1:20) +  # Set x-axis labels as integers
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+As we look for a compromise between number of clusters and computational load, we will choose k = 9 from the Elbow Method:
+
+```{r}
+set.seed(123)  # For reproducibility
+k_optimal <- 9  
+
+kmeans_model <- kmeans(pca_reduced, centers = k_optimal, nstart = 25)
+
+# Add cluster labels to the dataset
+pca_reduced$cluster <- as.factor(kmeans_model$cluster)
+
+# View cluster distribution
+table(pca_reduced$cluster)
+```
+
+```{r, fig.width=5, fig.height=4}
+# Assuming pca_reduced$PC1, pca_reduced$PC2, pca_reduced$PC3, and k_optimal are already defined
+
+# Define colors based on cluster labels
+colors <- rainbow(k_optimal)[as.numeric(pca_reduced$cluster)]
+
+# Create the 3D scatter plot using scatterplot3d
+s3d <- scatterplot3d(pca_reduced$PC1, pca_reduced$PC2, pca_reduced$PC3, 
+                     color = colors, pch = 19, 
+                     cex.symbols = 0.5,
+                     xlab = "PC1", ylab = "PC2", zlab = "PC3", 
+                     main = "K-Means Clusters")
+
+# Add a legend for clusters
+legend("topright", legend = unique(pca_reduced$cluster), 
+       col = rainbow(k_optimal), pch = 19, 
+       title = "Clusters", cex = 1)
+
+```
+
+### Cluster Profiling
+
+Cluster profiling is the process of analyzing and interpreting the characteristics of different clusters after performing clustering (e.g., K-Means) [4,12,27].
+
+The goal is to understand what defines each cluster in terms of meaningful patterns in the data, in order to:
+
+-   Identify dominant features of each cluster.
+
+-   Gain insights into user or item segmentation (e.g., different types of customers or movie genres).
+
+-   Supports decision-making by understanding how groups differ from one another.
+
+When we're using PCA-reduced data for clustering, the clusters are in the lower-dimensional PCA space.
+However, after clustering, we can still interpret the clusters in terms of the original features by computing the means of those original features for each cluster [4].
+
+The clustering process in the PCA space captures the structure of the data, but the cluster profiles we generate still relate to the original features [4,11].
+
+```{r}
+
+cluster_profile <- aggregate(df_final, by = list(cluster = pca_reduced$cluster), FUN = mean)
+
+knitr::kable(cluster_profile, caption = "Cluster Profile - Mean Values by Cluster") %>%
+  kableExtra::kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+Based on this results, we can do now a **cluster profiling and interpretation**.
+
+This cluster interpretation gives a detailed view of how each group behaves and their genre preferences based on their movie ratings and demographic characteristics.
+
+### Cluster Interpretation:
+
+```         
+Cluster: The cluster label (1 through 9) for each group.
+Rating: The average rating of the users in that cluster.
+Age: The average age of the users in that cluster.
+Gender: The average gender proportion (presumably 1 = male, 0 = female).
+Unknown: Proportion of unknown gender for each cluster.
+Action, Adventure, Animation, etc.: Proportions of users who have rated movies in each genre.
+```
+
+Cluster 1:
+
+```         
+Rating: 3.58 (moderate rating)
+Age: 31.24 (middle-aged users)
+Gender: 0.68 (68% male users)
+Action: 1.13% (low interest in Action movies)
+Adventure: 10.61% (moderate interest in Adventure movies)
+Animation: 82.04% (high interest in Animation movies)
+Other Genres: Low interest in genres such as Drama, Sci-Fi, and Thriller.
+```
+
+Interpretation: This cluster represents middle-aged male users who are particularly interested in Animation movies, with relatively low interest in Action and Adventure genres.
+
+Cluster 2:
+
+```         
+Rating: 3.81 (moderately high rating)
+Age: 36.69 (older users)
+Gender: 0.77 (77% male users)
+Action: 9.34% (moderate interest in Action movies)
+Adventure: 28.83% (moderate interest in Adventure movies)
+Comedy: 27.83% (moderate interest in Comedy movies)
+Other Genres: High interest in Sci-Fi (70.28%) and Thriller (70.28%).
+```
+
+Interpretation: Cluster 2 represents older male users who have a strong preference for Sci-Fi and Thriller movies, with moderate interest in Action, Adventure, and Comedy.
+
+Cluster 3:
+
+```         
+Rating: 3.33 (moderate rating)
+Age: 30.82 (young adult users)
+Gender: 0.80 (80% male users)
+Action: 73.44% (very high interest in Action movies)
+Adventure: 31.43% (moderate interest in Adventure movies)
+Drama: 5.76% (minimal interest in Drama)
+Other Genres: Moderate interest in Sci-Fi (56.32%) and Crime (12.72%).
+```
+
+Interpretation: Cluster 3 represents younger male users who have a strong interest in Action and Adventure movies, with a more moderate interest in Sci-Fi and Crime genres.
+
+Cluster 4:
+
+```         
+Rating: 3.36 (moderate rating)
+Age: 32.87 (middle-aged users)
+Gender: 0.71 (71% male users)
+Action: 4.58% (moderate interest in Action movies)
+Adventure: 7.87% (low interest in Adventure movies)
+Animation: 94.61% (very high interest in Animation movies)
+Other Genres: Low interest in genres such as Drama and Sci-Fi.
+```
+
+Interpretation: Cluster 4 represents middle-aged male users who have a very high interest in Animation movies, with low interest in other genres such as Action and Adventure.
+
+Cluster 5:
+
+```         
+Rating: 3.20 (moderate rating)
+Age: 33.20 (middle-aged users)
+Gender: 0.76 (76% male users)
+Action: 18.78% (moderate interest in Action movies)
+Adventure: 39.18% (high interest in Adventure movies)
+Animation: 57.55% (moderate interest in Animation movies)
+Other Genres: High interest in Comedy (44.12%) and low interest in Drama (26.12%).
+```
+
+Interpretation: Cluster 5 represents middle-aged male users who enjoy Adventure and Comedy movies, with moderate interest in Animation and Action.
+
+Cluster 6:
+
+```         
+Rating: 3.74 (high rating)
+Age: 34.14 (middle-aged users)
+Gender: 0.73 (73% male users)
+Action: 8.12% (low interest in Action movies)
+Drama: 98.83% (very high interest in Drama movies)
+Other Genres: Moderate interest in Crime (98.83%) and low interest in genres like Sci-Fi and Thriller.
+```
+
+Interpretation: Cluster 6 represents middle-aged male users who have a strong interest in Drama and Crime genres, with minimal interest in Action and Sci-Fi.
+
+Cluster 7:
+
+```         
+Rating: 3.74 (high rating)
+Age: 32.38 (middle-aged users)
+Gender: 0.80 (80% male users)
+Action: 90.72% (very high interest in Action movies)
+Adventure: 79.81% (very high interest in Adventure movies)
+Sci-Fi: 85.94% (very high interest in Sci-Fi movies)
+Other Genres: Low interest in genres like Comedy and Thriller.
+```
+
+Interpretation: Cluster 7 represents middle-aged male users who are very interested in Action, Adventure, and Sci-Fi genres.
+
+Cluster 8:
+
+```         
+Rating: 3.25 (moderate rating)
+Age: 30.93 (young adult users)
+Gender: 0.78 (78% male users)
+Action: 23.14% (moderate interest in Action movies)
+Adventure: 9.56% (low interest in Adventure movies)
+Animation: 57.55% (moderate interest in Animation movies)
+Other Genres: High interest in Drama (99.90%) and Thriller (80.27%).
+```
+
+Interpretation: Cluster 8 represents younger male users with a high interest in Drama and Thriller movies, along with moderate interest in Animation.
+
+Cluster 9:
+
+```         
+Rating: 3.70 (moderate rating)
+Age: 34.25 (middle-aged users)
+Gender: 0.77 (77% male users)
+Action: 0.00% (no interest in Action movies)
+Adventure: 0.00% (no interest in Adventure movies)
+Drama: 100% (very high interest in Drama movies)
+Other Genres: Minimal interest in Sci-Fi and other genres.
+```
+
+Interpretation: Cluster 9 represents middle-aged male users with a strong interest in Drama movies, with no interest in Action or Adventure.
+
+Summary:
+
+```         
+Cluster 1: Middle-aged male users with a strong preference for Animation.
+Cluster 2: Older male users with a strong interest in Sci-Fi and Thriller genres.
+Cluster 3: Younger male users interested in Action and Adventure movies.
+Cluster 4: Middle-aged male users with a strong preference for Animation.
+Cluster 5: Middle-aged male users with a high interest in Adventure and Comedy.
+Cluster 6: Middle-aged male users with a strong preference for Drama and Crime genres.
+Cluster 7: Middle-aged male users with a strong preference for Action, Adventure, and Sci-Fi.
+Cluster 8: Younger male users with a high interest in Drama and Thriller.
+Cluster 9: Middle-aged male users with a strong interest in Drama.
+```
+
+This analysis helps identify the preferences and demographics of users across the different clusters, enabling better content recommendations or targeted marketing strategies based on user profiles.
+
+### Cluster Validation
+
+To validate the clusters further, we can use the **Silhouette Score**, which provides a measure of how well-separated and well-formed our clusters are [5,11,19].
+
+#### Silhouette Score
+
+The **silhouette score** is a measure of how well each point is clustered based on its **cohesion** (how close it is to its own cluster) and **separation** (how far it is from the next nearest cluster) [5,11].
+
+For a data point $i$, the silhouette score is calculated as:
+
+$$
+s(i) = \frac{b(i) - a(i)}{\max(a(i), b(i))}
+$$
+
+Where:
+
+-   $a(i)$ = Average distance between **point** $i$ and all other points in the **same cluster** (cohesion).
+-   $b(i)$ = Average distance between **point** $i$ and all points in the **nearest cluster** (separation).
+-   $s(i)$ ranges from **-1 to 1**, where:
+    -   Close to 1 : Well-clustered (good separation & cohesion).
+    -   Around 0 : Overlapping clusters.
+    -   Negative : Misclassified point (closer to another cluster).
+
+A **box plot** summarizes the **distribution of silhouette scores per cluster**:
+
+-   **Median line** → Represents the **typical silhouette score** for the cluster.
+-   **Box range** → Shows the **spread** of silhouette widths within each cluster.
+-   **Outliers** → Indicate **misclassified points** with low or negative silhouette scores.
+
+Using a *ggplot2 boxplot*, we can quickly compare clusters, detect overlapping clusters, and identify poorly defined groups.
+
+```{r}
+
+sil_score_kmeans <- silhouette(kmeans_model$cluster, dist(pca_reduced))
+
+cat("Average Silhouette Score:", mean(sil_score_kmeans[, 3]))
+
+```
+
+We have an average Silhouette score of approximately 0.4, indicating moderate cluster separation and cohesion.
+
+Some clusters, such as Cluster 9 and Cluster 1, have higher Silhouette scores.
+
+Clusters 1, 6, 7, and 8 contain some misclassified points with low Silhouette scores, which contribute to lowering the overall K-Means average Silhouette score.
+
+```{r, fig.width=5, fig.height=4}
+library(ggplot2)
+library(cluster)
+
+# Convert silhouette object to a data frame
+sil_df <- data.frame(
+  cluster = as.factor(sil_score_kmeans[, 1]),
+  width = sil_score_kmeans[, 3]
+)
+
+# Plot with ggplot2
+ggplot(sil_df, aes(x = cluster, y = width, fill = cluster)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Silhouette Widths for K-Means Clustering",
+       x = "Cluster",
+       y = "Silhouette Width")
+
+
+```
+
+## 5.2 Hierarchical Clustering
+
+#### Hierarchical Clustering and Distance Calculation
+
+Hierarchical clustering is an **unsupervised machine learning** technique used to group similar data points into clusters **without pre-specifying the number of clusters (K)**.
+Unlike K-means, which assigns points to clusters based on centroids, hierarchical clustering builds a **tree-like structure (dendrogram)** to represent data similarity [1,2,5,15].
+
+Hierarchical clustering operates in two main ways [5,15]:
+
+-   **Agglomerative (Bottom-Up, Most Common)** → Starts with **each data point as its own cluster** and iteratively merges the most similar clusters.
+
+-   **Divisive (Top-Down)** → Starts with **all points in one cluster** and recursively splits into smaller clusters.
+
+in this work we will follow the first approach.
+
+#### Distance Calculation:
+
+The `dist()` function computes pairwise **Euclidean distance** between observations in `pca_sample`.
+
+By default, it uses **Euclidean distance**, defined as:
+
+$$
+d(A,B) = \sqrt{(A_1 - B_1)^2 + (A_2 - B_2)^2 + \dots + (A_n - B_n)^2}
+$$
+
+This distance metric ensures that points with similar PCA-reduced features are **closer together**.
+
+Other possible distance metrics [5,11]:
+
+-   **Manhattan Distance** (`method = "manhattan"`) → Sum of absolute differences.
+-   **Minkowski Distance** (generalized form of Euclidean & Manhattan).
+-   **Cosine Similarity**. which is a metric used to measure how similar two vectors are, based on the cosine of the angle between them. It is widely used in text analysis, machine learning, and clustering.
+
+Cosine similarity between two vectors $A$ and $B$ is defined as:
+
+$$
+\cos(\theta) = \frac{A \cdot B}{\|A\| \|B\|}
+$$
+
+where:
+
+-   $A \cdot B$ is the dot product of the two vectors.
+
+-   $\|A\|$ and $\|B\|$ are the magnitudes (norms) of vectors $A$ and $B$.
+
+-   $\theta$ is the angle between the vectors.
+
+-   Focuses on the **direction** rather than magnitude, making it useful for text and high-dimensional data.
+
+-   Works well when comparing documents of different lengths.
+
+-   Efficient to compute using dot product operations.
+
+#### Linkage Method:
+
+Once the distances between points are computed, we need to determine **how to merge clusters** at each step.
+The `hclust()` function provides various linkage methods [4,11,12,16]:
+
+-   **Single Linkage:** Merges clusters based on the shortest pairwise distance between points in different clusters.
+    This can lead to a chaining effect, where long, loose clusters are formed.
+
+-   **Complete Linkage:** Uses the maximum pairwise distance between points in different clusters, leading to compact and tightly bound clusters.
+
+-   **Ward’s Method (ward.D2):** Minimizes the increase in intra-cluster variance, resulting in balanced and compact clusters.
+
+**Average Linkage** calculates the average pairwise distance between all points in two clusters and merges the clusters that have the smallest average distance [4,11].
+
+Mathematically, for two clusters $A$ and $B$, the average linkage distance is defined as:
+
+$$
+d(A,B) = \frac{1}{|A| |B|} \sum_{i \in A} \sum_{j \in B} d(i,j)
+$$
+
+where:
+
+-   $d(i,j)$ is the distance between individual points $i$ and $j$.
+-   $|A|$ and $|B|$ are the number of points in clusters $A$ and $B$.
+
+```{r echo= FALSE}
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+
+```
+
+```{r echo=FALSE}
+library(cluster)   # For silhouette analysis
+library(ggplot2)   # For visualization
+library(proxy)     # For cosine distance
+```
+
+```{r, fig.width=5, fig.height=4}
+# Function to compute and plot average silhouette score
+silhouette_analysis <- function(data, distance_metrics = c("euclidean", "manhattan","cosine"),
+                                linkages = c("single","complete", "average", "ward.D"), k_values = 5:9) {
+  
+  # Ensure data is numeric
+  data_numeric <- as.matrix(data)
+  
+  results <- data.frame()  # Store silhouette results
+  
+  # Iterate over distance metrics
+  for (dist_metric in distance_metrics) {
+    
+    # Compute distance matrix (cosine similarity for "cosine")
+    if (dist_metric == "cosine") {
+      distance_matrix <- proxy::dist(data_numeric, method = "cosine")
+    } else {
+      # Compute standard distance matrix for other metrics
+      distance_matrix <- dist(data_numeric, method = dist_metric)
+    }
+    
+    # Iterate over linkage methods
+    for (linkage in linkages) {
+      
+      # Perform hierarchical clustering
+      hc <- hclust(distance_matrix, method = linkage)
+      
+      # Iterate over k values (number of clusters)
+      for (k in k_values) {
+        
+        # Cut the dendrogram to form clusters
+        clusters <- cutree(hc, k = k)
+        
+        # Compute silhouette score
+        sil <- silhouette(clusters, distance_matrix)
+        avg_sil <- mean(sil[, 3])  # Extract average silhouette score
+        
+        # Store results
+        results <- rbind(results, data.frame(
+          Distance = dist_metric,
+          Linkage = linkage,
+          Clusters = k,
+          Avg_Silhouette = avg_sil
+        ))
+      }
+    }
+  }
+  
+  # Plot the results
+  ggplot(results, aes(x = Clusters, y = Avg_Silhouette, color = Linkage)) +
+    geom_line() + geom_point(size = 2) +
+    facet_wrap(~ Distance) +
+    labs(title = "Average Silhouette Score for Different Linkage and Distance Metrics",
+         x = "Number of Clusters (k)", y = "Average Silhouette Score") +
+    theme_minimal()
+}
+
+
+silhouette_analysis(pca_reduced)
+
+```
+
+Despite the Euclidean distance seams to have better average silhouette, due to the nature of our data (mainly categorical encoded variables), we will use the **cosine similarity** as distance metric.
+
+By the plot we also can see that the best average silhouette, for this metric, is obtained with 9 clusters, and "average" linkage.
+
+So let's assume we want **k=9 clusters, distance="cosine" and linkage="average"**:
+
+```{r, echo=FALSE}
+library(dendextend)  
+library(proxy)
+
+```
+
+```{r}
+pca_numeric <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+
+# Convert to a numeric matrix
+pca_matrix <- as.matrix(pca_numeric)
+
+cosine_sim_matrix <- proxy::dist(pca_matrix, method = "cosine")
+
+# Perform hierarchical clustering using cosine similarity
+hclust_result <- hclust(cosine_sim_matrix, method = "average")
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Plot the dendrogram
+plot(hclust_result, main = "Dendrogram of Hierarchical Clustering", 
+     xlab = "Observations", ylab = "Height", cex = 0.7)
+
+# Optional: Color branches for better visualization
+dend <- as.dendrogram(hclust_result)
+dend <- color_branches(dend, k = 9)  
+plot(dend, main = "Dendrogram")
+
+# Cut tree into desired clusters 
+clusters <- cutree(hclust_result, k = 9)
+
+# Add cluster labels to pca_reduced dataframe
+pca_reduced$cluster <- as.factor(clusters)
+
+# View cluster distribution
+table(pca_reduced$cluster)
+```
+
+The vertical axis of a dendrogram represents the height, which corresponds to the dissimilarity (or distance) between clusters at the point of their merger.
+The height at which two clusters merge indicates how different (distant) they are [4,6,12].
+
+-   Lower height: More similar clusters merge early.
+-   Higher height : More dissimilar clusters merge later.
+
+After cutting the dendrogram into clusters, each observation is assigned to a cluster.
+
+We can analyze the distribution of these clusters and how the data points are grouped.
+
+```{r}
+rm(dend)
+# View the cluster distribution
+table(pca_reduced$cluster)
+
+```
+
+Visualize Cluster Assignments
+
+```{r, echo=FALSE}
+
+library(scatterplot3d)
+
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Assuming pca_reduced$PC1, pca_reduced$PC2, pca_reduced$PC3, and pca_reduced$cluster are already defined
+
+# Define distinct colors for clusters
+cluster_levels <- levels(factor(pca_reduced$cluster))
+cluster_colors <- rainbow(length(cluster_levels))  # Generates unique colors
+names(cluster_colors) <- cluster_levels  # Map colors to cluster labels
+
+# Assign colors to the pca_reduced data
+pca_reduced$color <- cluster_colors[as.character(pca_reduced$cluster)]
+
+
+# Create a static 3D scatter plot using scatterplot3d
+s3d <- scatterplot3d(pca_reduced$PC1, pca_reduced$PC2, pca_reduced$PC3, 
+                     color = pca_reduced$color, pch = 19, 
+                     xlab = "PC1", ylab = "PC2", zlab = "PC3", 
+                     main = "Hierarchical Clustering")
+
+# Add a legend with matching colors for clusters
+legend("topright", legend = names(cluster_colors), 
+       col = cluster_colors, pch = 19,  # Use solid points
+       title = "Clusters", cex = 1.2)
+
+
+```
+
+```{r, echo=FALSE}
+# Remove the color column to keep dataset numeric
+pca_reduced$color <- NULL
+```
+
+### Examine Cluster Profiles
+
+The core idea is that both K-means and hierarchical clustering group similar observations together, so once we've assigned cluster labels to our observations, we can aggregate the original data by these labels.
+This gives a cluster profile (similar to what we did for K-means), but based on the clusters identified by hierarchical clustering [4,11,16].
+
+Just like with K-means, when we aggregate the original data by the hierarchical cluster labels, we can interpret each cluster in terms of its average feature values, such as the age distribution, gender, rating preferences, or other features from our original dataset.
+
+```{r}
+# Aggregate original features by cluster labels
+cluster_profile <- aggregate(df_final, by = list(cluster = pca_reduced$cluster), FUN = mean)
+
+# Display cluster profile as a table
+knitr::kable(cluster_profile, caption = "Cluster Profile - Mean Values by Cluster") %>%
+  kableExtra::kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "400px")
+
+```
+
+#### Cluster Interpretation:
+
+Based on the hierarchical cluster profile, we can have a detailed interpretation of each cluster as follows: Cluster 1:
+
+```         
+Rating: 3.45 (moderate rating)
+
+Age: 31.15 (young adult users)
+
+Gender: 0.77 (77% male users)
+
+Action: 89.33% (strong interest in Action movies)
+
+Adventure: 50.25% (moderate interest in Adventure movies)
+
+Drama: 4.33% (low interest in Drama)
+
+Other Genres: Some interest in Sci-Fi (20%) and Thriller (39%).
+```
+
+Interpretation: Cluster 1 represents a younger group of male users (age \~31) who are highly engaged with Action and Adventure genres.
+These users show some interest in Sci-Fi and Thriller, but Drama and other genres are less significant for them.
+This group might be looking for fast-paced, action-packed films with occasional interest in adventure-driven plots.
+Cluster 2:
+
+```         
+Rating: 3.72 (high rating)
+
+Age: 34.23 (middle-aged users)
+
+Gender: 0.71 (71% male users)
+
+Action: 8.16% (moderate interest in Action movies)
+
+Adventure: 0.29% (very low interest in Adventure movies)
+
+Drama: 99.88% (very high interest in Drama)
+
+Other Genres: Very strong preference for Documentary (99.88%).
+```
+
+Interpretation: Cluster 2 represents middle-aged male users who are predominantly interested in Drama and Documentary films.
+They show minimal interest in genres like Action and Adventure, suggesting they prefer more narrative-driven or educational content rather than thrilling or action-based genres.
+Cluster 3:
+
+```         
+Rating: 3.42 (moderate rating)
+
+Age: 33.26 (young adult users)
+
+Gender: 0.73 (73% male users)
+
+Action: 0.05% (negligible interest in Action movies)
+
+Adventure: 0.34% (very low interest in Adventure movies)
+
+Sci-Fi: 98.72% (strong interest in Sci-Fi movies)
+
+Other Genres: Minor interest in Drama (12.44%) and some in Thriller (4.17%).
+```
+
+Interpretation: Cluster 3 represents a group of male users (age \~33) who are particularly interested in Sci-Fi films.
+These users show very little interest in action-based genres like Action and Adventure, and their secondary interests lie in Drama and Thriller genres.
+This group might have a strong preference for speculative or futuristic stories, with a smaller attraction to more traditional genres.
+Cluster 4:
+
+```         
+Rating: 3.41 (moderate rating)
+
+Age: 32.06 (young adult users)
+
+Gender: 0.69 (69% male users)
+
+Action: 5.80% (low interest in Action movies)
+
+Adventure: 17.08% (moderate interest in Adventure movies)
+
+Sci-Fi: 50.00% (moderate interest in Sci-Fi movies)
+
+Other Genres: Strong interest in Fantasy (52.09%) and Thriller (39.36%).
+```
+
+Interpretation: Cluster 4 represents young male users (age \~32) with a diverse set of genre interests.
+Although Action is not a strong interest, users in this cluster are highly interested in Fantasy and Thriller genres, suggesting that they may be drawn to immersive, other-worldly experiences and suspense-driven narratives.
+Cluster 5:
+
+```         
+Rating: 3.22 (moderate rating)
+
+Age: 31.13 (young adult users)
+
+Gender: 0.81 (81% male users)
+
+Action: 17.71% (moderate interest in Action movies)
+
+Adventure: 2.84% (low interest in Adventure movies)
+
+Sci-Fi: 81.69% (high interest in Sci-Fi movies)
+
+Other Genres: Very low interest in Thriller (0.49%) and Drama (5.61%).
+```
+
+Interpretation: Cluster 5 consists of younger male users (age \~31) who are highly interested in Sci-Fi films, with moderate interest in Action movies.
+The group shows minimal interest in genres like Drama or Thriller, indicating a preference for futuristic or speculative content with less emphasis on traditional drama or suspense.
+Cluster 6:
+
+```         
+Rating: 3.62 (high rating)
+
+Age: 35.40 (older users)
+
+Gender: 0.84 (84% male users)
+
+Action: 46.67% (moderate interest in Action movies)
+
+Adventure: 28.82% (moderate interest in Adventure movies)
+
+Sci-Fi: 36.27% (moderate interest in Sci-Fi movies)
+
+Other Genres: Strong interest in Thriller (71.37%).
+```
+
+Interpretation: Cluster 6 represents older male users (age \~35) who have a balanced interest in Action, Adventure, and Sci-Fi movies, with a particularly strong attraction to Thriller genres.
+This suggests that they enjoy intense or suspenseful content, with a moderate interest in action-packed or adventure-filled narratives.
+Cluster 7:
+
+```         
+Rating: 3.76 (high rating)
+
+Age: 33.87 (middle-aged users)
+
+Gender: 0.79 (79% male users)
+
+Action: 13.90% (moderate interest in Action movies)
+
+Adventure: 0.00% (no interest in Adventure movies)
+
+Sci-Fi: 42.45% (moderate interest in Sci-Fi movies)
+
+Other Genres: Strong interest in Thriller (66.37%) and some interest in Horror (34.27%).
+```
+
+Interpretation: Cluster 7 represents middle-aged male users (age \~34) with a strong interest in Thriller films.
+Sci-Fi and Horror also attract some attention, but there is very little interest in Adventure or Action genres.
+This group likely enjoys intense narratives with a mix of suspense, fear, and speculative elements.
+Cluster 8:
+
+```         
+Rating: 3.20 (moderate rating)
+
+Age: 33.20 (young adult users)
+
+Gender: 0.76 (76% male users)
+
+Action: 18.78% (moderate interest in Action movies)
+
+Adventure: 39.18% (moderate interest in Adventure movies)
+
+Sci-Fi: 44.90% (moderate interest in Sci-Fi movies)
+
+Other Genres: Strong interest in Fantasy (44.90%) and some interest in Drama (26.12%).
+```
+
+Interpretation: Cluster 8 represents young male users (age \~33) with a diverse interest in Action, Adventure, Sci-Fi, and Fantasy genres.
+They are likely fans of adventurous, speculative, and action-packed movies, but also have some appreciation for Drama.
+This group is likely drawn to films that offer both excitement and imaginative elements.
+Cluster 9:
+
+```         
+Rating: 3.70 (moderate rating)
+
+Age: 34.25 (middle-aged users)
+
+Gender: 0.77 (77% male users)
+
+Action: 0.00% (no interest in Action movies)
+
+Adventure: 0.00% (no interest in Adventure movies)
+
+Sci-Fi: 0.00% (no interest in Sci-Fi movies)
+
+Other Genres: Strong interest in Documentary (100%) and Drama (62.11%).
+```
+
+Interpretation: Cluster 9 represents middle-aged male users (age \~34) who have a significant interest in Documentary films, with some preference for Drama as well.
+There is no interest in genres like Action, Adventure, or Sci-Fi, suggesting these users are more drawn to factual or narrative-based content rather than entertainment-driven films.
+
+The analysis of these clusters shows distinct preferences based on age and genre interests.
+
+Younger male users tend to have stronger preferences for Action, Adventure, and Sci-Fi genres, while older users and those in middle age show a higher preference for Documentary and Drama genres.
+
+Each cluster highlights specific patterns in genre interests and movie ratings, which can guide content recommendations and targeted movie selections for different user demographics.
+
+We can calculate the **average silhouette score**
+
+```{r}
+# Calculate the silhouette score
+#sil_score_hclust <- silhouette(clusters, dist(pca_reduced))
+sil <- silhouette(clusters, cosine_sim_matrix)
+avg_sil <- mean(sil[, 3])  # Extract average silhouette score
+        
+
+#cat("Average Silhouette Score:", mean(sil_score_hclust[, 3]))
+cat("Average Silhouette Score:", avg_sil)
+
+```
+
+```{r, echo=FALSE}
+rm(cosine_sim_matrix)
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Convert silhouette object to a data frame
+sil_df_hclust <- data.frame(
+  cluster = as.factor(sil[, 1]),
+  width = sil[, 3]
+)
+
+# Plot with ggplot2
+ggplot(sil_df_hclust, aes(x = cluster, y = width, fill = cluster)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Silhouette Widths for Hierarchical Clustering",
+       x = "Cluster",
+       y = "Silhouette Width")
+```
+
+## 5.3 DBSCAN (Density-Based Spatial Clustering of Applications with Noise)
+
+DBSCAN is a clustering algorithm that groups points based on their density, unlike K-Means or Hierarchical clustering which rely on distance metrics.
+DBSCAN can be especially useful when the data has noise or varying density clusters [7,10,11,25].
+
+DBSCAN requires two parameters:
+
+-   **eps (epsilon)**: Defines the maximum radius within which points are considered neighbors.
+
+A smaller eps may lead to many small clusters or noise, while a larger eps may merge clusters incorrectly.
+
+-   **minPts**: Specifies the minimum number of points required to form a dense region (i.e., a core point).
+
+If a point has at least minPts neighbors within the eps radius, it becomes a core point and helps form a cluster.
+
+Setting eps too high may merge distinct clusters, while setting it too low may treat too many points as noise.
+
+Concerning *minPts* a rule of thumb or common heuristic is **minPts = 2 \* dimensions of the dataset (D)**.
+
+In our case the dataset has 9 features, minPts ≈ 18 is a good starting point.
+
+```{r, echo=FALSE}
+library(dbscan)
+library(proxy)
+library(cluster)  # For silhouette function
+
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Function to calculate silhouette scores for different eps and minPts in DBSCAN
+silhouette_for_eps_minPts <- function(data, eps_values, minPts_values) {
+  # Calculate the cosine similarity matrix
+  cosine_sim_matrix_db <- proxy::dist(data, method = "cosine")
+  
+  # Initialize a data frame to store results
+  silhouette_scores_db <- data.frame(eps = numeric(0), minPts = numeric(0), silhouette_score = numeric(0))
+  
+  # Iterate over each eps value and minPts value
+  for (eps in eps_values) {
+    for (minPts in minPts_values) {
+      # Perform DBSCAN with the current eps and minPts
+      dbscan_result <- dbscan(cosine_sim_matrix_db, eps = eps, minPts = minPts)
+      
+      # If DBSCAN found more than 1 cluster (ignoring noise, which is labeled 0)
+      if (length(unique(dbscan_result$cluster)) > 1) {
+        # Compute the silhouette score
+        sil_db <- silhouette(dbscan_result$cluster, cosine_sim_matrix_db)
+        avg_sil_db <- mean(sil_db[, 3], na.rm = TRUE)  # Extract the average silhouette score
+        
+        # Append to results
+        silhouette_scores_db <- rbind(silhouette_scores_db, data.frame(eps = eps, minPts = minPts, silhouette_score = avg_sil_db))
+      }
+    }
+  }
+  
+  # Return the silhouette scores data frame
+  return(silhouette_scores_db)
+}
+
+# Example usage:
+# Define eps values and minPts values to test
+eps_values <- seq(0.1, 0.4, by = 0.1)   # eps values from 0.1 to 0.4
+minPts_values <- seq(9, 18, by = 3)     # minPts values from 9 to 18
+
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+
+# Calculate silhouette scores for each combination of eps and minPts
+sil_scores_db <- silhouette_for_eps_minPts(pca_reduced, eps_values, minPts_values)
+
+# Plot the silhouette scores for each eps and minPts
+ggplot(sil_scores_db, aes(x = eps, y = silhouette_score, color = factor(minPts))) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Silhouette Score vs. eps and minPts (DBSCAN with Cosine Similarity)",
+       x = "eps", y = "Average Silhouette Score", color = "minPts") +
+  theme_minimal()
+
+```
+
+In this case we will consider **eps = 0.11 and minPts=18** because higher values of eps will reduce the number of clusters to 1 or 2
+
+```{r, echo=FALSE}
+library(dbscan)
+library(proxy)
+```
+
+```{r}
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+
+# Calculate cosine similarity matrix (using 'dist' function from 'proxy' package)
+cosine_sim_matrix_db <- proxy::dist(pca_reduced, method = "cosine")
+
+# Run DBSCAN with cosine similarity matrix
+dbscan_result <- dbscan(cosine_sim_matrix_db, eps = 0.11, minPts = 18)
+
+# Add cluster labels to data
+pca_reduced$cluster <- as.factor(dbscan_result$cluster)  # "-1" represents noise
+```
+
+```{r}
+# Check for NAs in the cluster column
+table(pca_reduced$cluster)  # This will show if there are NA values in the cluster column
+
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Define distinct colors for clusters
+cluster_levels <- levels(factor(pca_reduced$cluster))
+cluster_colors <- rainbow(length(cluster_levels))  # Generates unique colors
+names(cluster_colors) <- cluster_levels  # Map colors to cluster labels
+
+# Assign colors to the pca_reduced data
+pca_reduced$color <- cluster_colors[as.character(pca_reduced$cluster)]
+
+
+# Create a static 3D scatter plot using scatterplot3d
+s3d <- scatterplot3d(pca_reduced$PC1, pca_reduced$PC2, pca_reduced$PC3, 
+                     color = pca_reduced$color, pch = 19, 
+                     cex.symbols = 0.8,  # Adjust point size (0.8 is a bit smaller than default)
+                     xlab = "PC1", ylab = "PC2", zlab = "PC3", 
+                     main = "Hierarchical Clustering")
+
+# Add a legend with matching colors for clusters
+legend("topright", legend = names(cluster_colors), 
+       col = cluster_colors, pch = 19,  # Use solid points
+       title = "Clusters", cex = 1.2)
+
+```
+
+```{r, echo=FALSE}
+# Remove the color column to keep dataset numeric
+pca_reduced$color <- NULL
+
+```
+
+```{r}
+# Convert cluster labels to numeric for silhouette calculation
+# We will keep the factor labels for visualization but use numeric labels for calculations
+pca_reduced$cluster_numeric <- as.numeric(as.character(pca_reduced$cluster))
+
+# Add cluster labels to data
+pca_reduced$cluster <- as.factor(dbscan_result$cluster)  # "0" represents noise
+
+# Compute the silhouette score
+if (length(unique(dbscan_result$cluster)) > 1) {  # Only calculate if more than 1 cluster exists
+  silhouette_score_db <- silhouette(dbscan_result$cluster, as.matrix(cosine_sim_matrix_db))
+  
+  # Get the average silhouette score
+  avg_silhouette_score <- mean(silhouette_score_db[, 3], na.rm = TRUE)  # Remove NAs from noise
+  
+  # Print the average silhouette score
+  print(paste("Average Silhouette Score:", avg_silhouette_score))
+} else {
+  print("DBSCAN found only one cluster or all points are noise. Silhouette score is not meaningful.")
+}
+```
+
+```{r}
+
+# Convert silhouette object to a data frame for easier plotting
+sil_df_dbscan <- data.frame(
+  cluster = as.factor(silhouette_score_db[, 1]),  # Cluster labels
+  width = silhouette_score_db[, 3]  # Silhouette width
+)
+
+```
+
+```{r, fig.width=5, fig.height=4}
+# Plot silhouette scores for DBSCAN clusters
+ggplot(sil_df_dbscan, aes(x = cluster, y = width, fill = cluster)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Silhouette Widths for DBSCAN Clustering",
+       x = "Cluster",
+       y = "Silhouette Width") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+
+```
+
+A negative silhouette score indicates that a point is closer to a different cluster than its own, meaning it's not well clustered.
+
+Cluster 0 represents the noise points.
+
+These points are considered as noise or outliers in DBSCAN because they don't fit well into any cluster.
+They might be far from any dense regions, leading to poor cohesion (a high distance to points in the same cluster) and poor separation (close proximity to points in other clusters) [7,19,25].
+
+```{r, echo=FALSE}
+# Apply DBSCAN clustering
+rm(cosine_sim_matrix_db)
+```
+
+```{r}
+# Add cluster labels to data
+pca_reduced$cluster <- as.factor(dbscan_result$cluster)  # "0" represents noise
+table(pca_reduced$cluster) 
+```
+
+DBSCAN forms one large cluster and several small clusters.
+DBSCAN's behavior is driven by density-based clustering, and several factors contribute to this outcome, but mainly due to Uneven Density in Data.
+DBSCAN works best when clusters have similar density [7,8].
+
+As our data has one highly dense region and several low-density regions, DBSCAN forms one big cluster in the dense area and forms small clusters where density is lower.
+
+This happens because low-density regions fail to reach the *minPts* requirement, creating smaller clusters or noise.
+
+## 5.4 Gaussian Mixture Models (GMMs)
+
+Gaussian Mixture Models (GMMs) are a type of probabilistic model that assumes that the data is generated from a mixture of several Gaussian distributions, each with its own mean and variance [3,15]
+
+Unlike hard clustering algorithms (e.g., K-Means), GMM assigns probabilities to each data point for being a part of a cluster, making it a soft clustering technique.
+A data point can belong to multiple clusters, with varying probabilities [15,26].
+
+Parameters:
+
+**Mean (μ)**: The central point of each Gaussian distribution.
+
+**Covariance (Σ)**: The shape and spread of the distribution.
+
+**Weights (π)**: The proportion of each Gaussian component in the overall mixture.
+
+GMMs are typically trained using the Expectation-Maximization (EM) algorithm, which iteratively updates the parameters of the Gaussian components to best fit the data [21,26]:
+
+-   E-step (Expectation): Estimate the probability of each data point belonging to each cluster.
+
+-   M-step (Maximization): Update the parameters (mean, covariance, and weights) based on the estimated probabilities.
+
+GMMs are used in clustering, density estimation, and anomaly detection.
+They are particularly useful when the data is expected to have overlapping clusters or when data is distributed in elliptical shapes.
+In essence, GMMs provide a flexible and powerful framework for modeling complex datasets with multiple underlying patterns [11,21].
+
+**Model Selection Process:**
+
+The `Mclust()` function automatically selects the optimal number of clusters (G) based on the **Log-Likelihood (logL)** [26].
+
+Higher log-likelihood values indicate a better fit of the model to the data.
+However, relying solely on log-likelihood is not sufficient to determine the ideal number of clusters, as it tends to increase with model complexity.
+
+To address this, we can use criteria like the **Bayesian Information Criterion (BIC)** and **Integrated Completed Likelihood (ICL)**, which help balance model fit with model complexity [2,3,11].
+
+Both of these metrics penalize the inclusion of too many parameters, thereby encouraging simpler models with fewer clusters.
+
+**BIC (Bayesian Information Criterion)** is defined as:
+
+$$
+\text{BIC} = -2 \cdot \text{logL} + k \cdot \log(N)
+$$
+
+Where:
+
+-   **logL** is the log-likelihood of the model.
+-   **k** is the number of parameters in the model.
+-   **N** is the number of data points.
+
+A lower **BIC** value indicates a better model fit, as it reflects both the likelihood of the model and its complexity [2,3].
+
+**ICL (Integrated Completed Likelihood)** is a variant of BIC that accounts for the uncertainty in cluster assignments.
+It is particularly useful when working with soft clustering methods, like GMMs, where data points can belong to multiple clusters with different probabilities [2,11].
+The formula for **ICL** is:
+
+$$
+\text{ICL} = \text{BIC} - 2 \cdot \log\left(\sum_{i=1}^{N} \sum_{g=1}^{G} \gamma_{ig} \cdot \delta_{g}\right)
+$$
+
+Where:
+
+-   $\gamma_{ig}$ represents the probability that data point **i** belongs to cluster **g**.
+-   $\delta_{g}$ is the log-likelihood of the cluster assignments for all data points.
+
+Similar to **BIC**, a lower **ICL** value indicates a better model fit with fewer clusters, while also accounting for the uncertainty in the cluster membership.
+If the **BIC** and **ICL** values are close to each other, this suggests that the clusters are well-separated, indicating a stable and reliable clustering solution [2,6,11].
+
+Additionally, we can use the silhouette score as an extra evaluation method.
+
+Therefore, we will aim to determine the optimal number of clusters based on these three criteria:
+
+```{r, echo=FALSE}
+library(mclust)
+library(cluster)
+```
+
+```{r}
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster_numeric"]
+
+# Initialize empty vectors to store ICL, Silhouette scores, and BIC values
+icl_values <- numeric(9)
+silhouette_scores_hc <- numeric(9)
+bic_values <- numeric(9)
+
+# Loop through different values of G (number of clusters)
+for (k in 2:10) {  # Starting from 2 clusters (avoid 1 cluster, as silhouette is not defined for it)
+  # Fit the GMM model
+  gmm_model <- Mclust(pca_reduced, G = k)
+  
+  # Store the ICL value
+  icl_values[k] <- gmm_model$icl
+  
+  # Store the BIC value
+  bic_values[k] <- gmm_model$bic
+  
+  # Compute the dissimilarity matrix using Euclidean distance
+  dist_matrix <- dist(pca_reduced)  # Euclidean distance matrix
+  
+  # Calculate the Silhouette Score
+  silhouette_score_hc <- silhouette(gmm_model$classification, dist_matrix)  
+  
+  # Extract the silhouette widths (the third column)
+  if (inherits(silhouette_score_hc, "silhouette")) {
+    sil_width <- silhouette_score_hc[, 3]  # The third column contains silhouette widths
+    
+    # Remove NA values and calculate the mean silhouette score
+    sil_width <- sil_width[!is.na(sil_width)]
+    
+    if (length(sil_width) > 0) {
+      silhouette_scores_hc[k] <- mean(sil_width)
+    } else {
+      silhouette_scores_hc[k] <- NA
+    }
+  } else {
+    silhouette_scores_hc[k] <- NA  # If silhouette object is invalid, set as NA
+  }
+}
+
+# Create a data frame with the results
+results_hc <- data.frame(
+  Clusters = 2:10,  # Adjusted the cluster range to match the loop
+  ICL = icl_values[2:10],
+  BIC = bic_values[2:10],
+  Silhouette = silhouette_scores_hc[2:10]
+)
+
+# Print the results
+print(results_hc)
+
+# Find the best number of clusters based on ICL, BIC, and Silhouette
+best_icl_clusters <- which.min(icl_values[2:10])  # Minimize ICL (adjusted for the range)
+best_bic_clusters <- which.min(bic_values[2:10])  # Minimize BIC (adjusted for the range)
+best_silhouette_clusters <- which.max(silhouette_scores_hc[2:10])  # Maximize Silhouette Score
+
+# Print the best number of clusters based on each metric
+cat("Best number of clusters based on ICL:", best_icl_clusters, "\n")
+cat("Best number of clusters based on BIC:", best_bic_clusters, "\n")
+cat("Best number of clusters based on Silhouette:", best_silhouette_clusters, "\n")
+
+```
+
+```{r, fig.width=5, fig.height=4}
+
+par(mfrow = c(1, 2), mar = c(5, 4, 4, 2) + 0.1)  
+
+# Plot BIC and ICL values vs number of clusters
+plot(results_hc$Clusters, results_hc$BIC, type = "b", col = "blue", pch = 19, 
+     xlab = "Number of Clusters", ylab = "BIC", main = "BIC vs Number of Clusters", 
+     ylim = range(c(results_hc$BIC, results_hc$ICL)), cex.main = 1.2, cex.lab = 1.1)
+lines(results_hc$Clusters, results_hc$ICL, type = "b", col = "red", pch = 19)
+legend("topright", legend = c("BIC", "ICL"), col = c("blue", "red"), pch = 19, cex = 0.5)
+
+# Plot silhouette scores vs number of clusters
+plot(results_hc$Clusters, results_hc$Silhouette, type = "b", col = "green", pch = 19, 
+     xlab = "Number of Clusters", ylab = "Silhouette Score", main = "Silhouette vs Number of Clusters", 
+     cex.main = 1.2, cex.lab = 1.1)
+
+```
+
+```{r}
+# Choose the number of clusters (e.g., the one with the lowest BIC)
+optimal_G <- which.min(icl_values)
+print(optimal_G)
+```
+
+Let's choose **number of clusters = 7** as a compromise between BIC and Silhouette:
+
+```{r, fig.width=5, fig.height=4}
+# Load required libraries
+library(mclust)  # For Gaussian Mixture Models
+library(scatterplot3d)  # For static 3D visualization
+
+# Clean up the pca_reduced dataframe by removing unnecessary columns
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+pca_reduced <- pca_reduced[, !names(pca_reduced) %in% "cluster_numeric"]
+
+# Perform Gaussian Mixture Model (GMM) clustering using all 9 principal components
+# Apply the GMM model with the optimal number of clusters
+gmm_model <- Mclust(pca_reduced, G = 7)
+
+# Assign cluster labels to the data
+pca_reduced$cluster <- as.factor(gmm_model$classification)  # Extract cluster labels
+
+# Define distinct colors for clusters
+cluster_levels <- levels(pca_reduced$cluster)  # Extract unique cluster labels
+cluster_colors <- rainbow(length(cluster_levels))  # Generate distinct colors
+names(cluster_colors) <- cluster_levels  # Map colors to cluster labels
+
+# Assign colors temporarily for plotting
+pca_reduced$color <- cluster_colors[as.character(pca_reduced$cluster)]
+
+# Create a static 3D scatter plot using scatterplot3d
+s3d <- scatterplot3d(pca_reduced$PC1, pca_reduced$PC2, pca_reduced$PC3, 
+                     color = pca_reduced$color, pch = 19, 
+                     cex.symbols = 0.8,  # Adjust point size (0.8 is smaller than default)
+                     xlab = "PC1", ylab = "PC2", zlab = "PC3", 
+                     main = "Gaussian Mixture Model Clustering")
+
+# Add a legend with matching colors for clusters
+legend("topright", legend = names(cluster_colors), 
+       col = cluster_colors, pch = 19,  # Use solid points
+       title = "Clusters", cex = 1.2)
+
+
+```
+
+```{r, echo=FALSE}
+# Remove the color column to keep dataset numeric
+pca_reduced$color <- NULL
+```
+
+```{r}
+print(table(pca_reduced$cluster))  # Count points in each cluster
+
+```
+
+```{r, echo =FALSE}
+rm(dist_matrix)
+```
+
+```{r}
+summary(gmm_model)  # Detailed model summary
+```
+
+```{r}
+# Cluster size distribution
+cluster_sizes <- table(gmm_model$classification)
+barplot(cluster_sizes, main = "Cluster Size Distribution", col = "skyblue", ylab = "Number of Points", xlab = "Cluster")
+
+```
+
+```{r, echo=FALSE}
+library(gridExtra)
+```
+
+```{r,  fig.width=5, fig.height=4}
+# Create a density plot for each Gaussian component
+ggplot(pca_reduced, aes(x = PC1)) +
+  geom_density(aes(y = after_stat(density), color = factor(gmm_model$classification)), 
+               adjust = 1) +  # adjust bandwidth for smoother curve
+  labs(title = "Density of GMM Components", x = "Principal Component 1", y = "Density") +
+  theme_minimal()
+```
+
+We can represent the distribution of the data along the first principal component (PC1), with the density estimates of each Gaussian mixture component overlaid
+
+The y-axis represents the density of the data along PC1.
+
+This is the estimated probability density function (PDF) of our data.
+Higher values indicate areas where data points are more concentrated, and lower values indicate sparser regions in the data.
+
+The density plot is a smooth curve that estimates the likelihood of data points appearing in particular ranges of PC1.
+
+Each color in the plot corresponds to a Gaussian mixture component.
+In other words, each component in the Gaussian Mixture Model (GMM) represents a cluster of data points with a certain probability distribution.
+
+Peak in the density plot with one color, it means that the data points in that region are likely part of a specific cluster/component.
+
+The spread of each component's density curve tells us how variable the data is for that component in PC1.
+
+```{r, fig.width=5, fig.height=4}
+# Get the means and covariance of the GMM
+means <- gmm_model$parameters$mean
+covariances <- gmm_model$parameters$variance$sigma
+
+# Create a plot with data points and the ellipses
+ggplot(pca_reduced, aes(x = PC1, y = PC2, color = factor(gmm_model$classification))) +
+  geom_point() +
+  stat_ellipse(data = pca_reduced, aes(x = PC1, y = PC2, color = factor(gmm_model$classification)),
+               level = 0.95) +  # 95% ellipse level
+  labs(title = "GMM Clusters with Ellipses", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal()
+
+```
+
+Each Gaussian component in the mixture has its own mean (center), covariance (spread and orientation), and weight (proportion in the mixture) [11,26].
+
+These ellipsoids represent the 95% confidence region for the data points belonging to each Gaussian component.
+This means that about 95% of the data points from each Gaussian cluster are expected to fall within the bounds of the ellipse.
+The shape and orientation of the ellipse reflect the covariance of the Gaussian distribution.
+In other words, the ellipse shows how the data points are spread around the mean in each direction.
+
+[Shape:]{.underline} The shape of the ellipse reflects the correlation between the two principal components (PC1 and PC2).
+If the ellipse is elongated along a certain direction, it suggests a strong correlation between those components [3,26].
+
+[Size:]{.underline} The size of the ellipse indicates the spread of the data around the mean.
+A larger ellipse means a wider spread of the data points, while a smaller ellipse means the data is more concentrated around the mean [3,26}.
+
+If the ellipses of two or more Gaussian components are overlapping, it suggests that the clusters are not well-separated, which could indicate that the model is having difficulty distinguishing between those components.
+If the ellipses are distinct and do not overlap, it suggests that the Gaussian components are well-separated, indicating clear clusters in the data.
+The orientation and shape of the ellipses provide information about how the data points are distributed and correlated with each other in the 2D space defined by the first two principal components (PC1 and PC2) [19,21,26].
+
+```{r}
+print(gmm_model$G)
+
+# Check the means (centroids) of the clusters
+print(gmm_model$parameters$mean)
+```
+
+
+\newpage
+
+
+# 6. Main Results
+
+## Compare Clustering Results with Adjusted Rand Index (ARI):
+
+The Adjusted Rand Index is one of the most common measures for comparing clustering results.
+It compares the pairwise grouping of data points between two clusters and corrects for random chance [12,29].
+
+Works well for all types of clustering results (hard or soft).
+It takes into account both the correctness (points correctly clustered) and incorrectness (points incorrectly clustered).
+Range: The ARI ranges from −1 (completely dissimilar) to 1 (perfect similarity), with 0 meaning random clustering [11,12,29].
+
+```{r}
+# Perform k-means clustering (e.g., 5 clusters)
+kmeans_result <- kmeans(pca_reduced, centers = 9)
+kmeans_clusters <- kmeans_result$cluster
+
+```
+
+```{r}
+# Perform hierarchical clustering
+pca_numeric <- pca_reduced[, !names(pca_reduced) %in% "cluster"]
+
+# Convert to a numeric matrix
+pca_matrix <- as.matrix(pca_numeric)
+
+cosine_sim_matrix <- proxy::dist(pca_matrix, method = "cosine")
+
+# Perform hierarchical clustering using cosine similarity
+hierarchical_result <- hclust(cosine_sim_matrix, method = "average")
+# Cut the dendrogram into 5 clusters
+hierarchical_clusters <- cutree(hierarchical_result, k = 9)
+
+```
+
+```{r}
+
+dbscan_result <- dbscan(cosine_sim_matrix , eps = 0.11, minPts = 18)
+
+pca_reduced$cluster <- as.factor(dbscan_result$cluster)  # "0" represents noise
+dbscan_clusters <- ifelse(dbscan_result$cluster == 0, 0, dbscan_result$cluster)
+```
+
+```{r}
+
+gmm_result <- Mclust(pca_reduced, G = 7)  # G = 7 for 7 clusters
+gmm_clusters <- gmm_result$classification
+
+```
+
+```{r}
+# Function to compute Fowlkes-Mallows Index (FMI)
+fowlkes_mallows <- function(cluster1, cluster2) {
+  # Create a contingency table of the clusters
+  table_ <- table(cluster1, cluster2)
+  
+  # Compute the number of pairs
+  tp <- sum(choose(table_, 2))
+  fp_fn <- sum(choose(table_ - diag(table_), 2))
+  
+  # Fowlkes-Mallows Index formula
+  FMI <- tp / sqrt((tp + fp_fn) * (tp + fp_fn))
+  return(FMI)
+}
+
+# Compute FMI for all combinations
+fmi_kmeans_hierarchical <- fowlkes_mallows(kmeans_clusters, hierarchical_clusters)
+fmi_kmeans_dbscan <- fowlkes_mallows(kmeans_clusters, dbscan_clusters)
+fmi_kmeans_gmm <- fowlkes_mallows(kmeans_clusters, gmm_clusters)
+fmi_dbscan_gmm <- fowlkes_mallows(dbscan_clusters, gmm_clusters)
+fmi_hierarchical_dbscan <- fowlkes_mallows(hierarchical_clusters, dbscan_clusters)
+fmi_hierarchical_gmm <- fowlkes_mallows(hierarchical_clusters, gmm_clusters)
+
+# Store results
+fmi_results <- data.frame(
+   Method1 = c("k-means", "k-means", "k-means", "DBSCAN", "DBSCAN", "hierarchical"),
+  Method2 = c("hierarchical", "DBSCAN", "GMM", "hierarchical", "GMM", "GMM"),
+  FMI = c(fmi_kmeans_hierarchical, fmi_kmeans_dbscan, fmi_kmeans_gmm,
+          fmi_dbscan_gmm, fmi_hierarchical_dbscan, fmi_hierarchical_gmm)
+)
+
+# Print results
+print(fmi_results)
+```
+
+```{r, fig.width=5, fig.height=4}
+# Load necessary libraries
+library(ggplot2)
+library(reshape2)
+
+# Create a dataframe with FMI results
+fmi_results <- data.frame(
+  Method1 = c("k-means", "k-means", "k-means", "DBSCAN", "DBSCAN", "hierarchical"),
+  Method2 = c("hierarchical", "DBSCAN", "GMM", "hierarchical", "GMM", "GMM"),
+  FMI = c(0.5049704, 0.3694232, 0.3559871, 0.3291647, 0.2027890, 0.4408476)
+)
+
+# Create a heatmap-friendly matrix
+fmi_matrix <- acast(fmi_results, Method1 ~ Method2, value.var = "FMI")
+
+# Convert to long format for ggplot2
+fmi_long <- melt(fmi_matrix, na.rm = TRUE)
+
+# Plot the heatmap
+ggplot(fmi_long, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  geom_text(aes(label = round(value, 3)), color = "white", size = 5) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(title = "Fowlkes-Mallows Index (FMI) Heatmap",
+       x = "Method 1",
+       y = "Method 2",
+       fill = "FMI Score")
+
+```
+
+The FMI (Fowlkes-Mallows Index) measures the similarity between clustering results, ranging from 0 (no similarity) to 1 (perfect match) [13].
+
+We are using Cosine Similarity for DBSCAN & Hierarchical Clustering.
+
+**K-means vs. Hierarchical (0.505) – The Highest Similarity**
+
+Despite using different techniques, these two methods show moderate agreement.
+K-means clusters based on Euclidean distances, while hierarchical clustering (with cosine similarity) captures relationships based on angular separation [13,17].
+
+The moderate FMI score suggests that hierarchical clustering (even with cosine similarity) still detects some of the structures that K-means finds [12].
+
+However, since cosine similarity is good for high-dimensional, sparse data, hierarchical clustering may be capturing more meaningful groups than K-means [3].
+
+**K-means vs. DBSCAN (0.369) – Moderate-Low Similarity**
+
+K-means uses Euclidean distance, whereas DBSCAN was run with cosine similarity.
+DBSCAN with cosine similarity focuses on dense regions based on angles between points, whereas K-means forces spherical clusters [7,10,17].
+
+Since DBSCAN (cosine) had poor silhouette scores (\~0.1 max), this suggests that DBSCAN struggled to find meaningful clusters, leading to weaker agreement with K-means [12].
+
+**K-means vs. GMM (0.356) – Moderate-Low Similarity**
+
+GMM allows soft assignments and models data as Gaussian distributions, while K-means forces hard spherical clustering.The moderate-low similarity suggests that GMM identified overlapping clusters, while K-means strictly separated data into distinct groups [12,17].
+
+If the data had non-Gaussian distributions, this could explain the lower similarity [2].
+
+Since K-means and GMM both rely on distance-based clustering, their results are somewhat similar, but GMM’s flexibility creates differences [26].
+
+**DBSCAN vs. Hierarchical (0.329) – Lower Than Expected!**
+
+Both methods used cosine similarity, so we might expect a higher similarity.
+DBSCAN had poor silhouette scores (\~0.1 max), meaning it likely failed to form meaningful clusters.
+Hierarchical clustering, however, was still able to detect structures using cosine similarity [12,13].
+
+This means DBSCAN and Hierarchical clustering (cosine) found very different cluster assignments, despite using the same similarity metric [12].
+
+If DBSCAN labeled too many points as noise, it could explain the lower agreement [7].
+
+**DBSCAN vs. GMM (0.203) – The Lowest Similarity**
+
+DBSCAN (cosine) and GMM (Euclidean-based Gaussian distributions) are completely different approaches.
+DBSCAN (cosine) may have struggled to create clusters, meaning its clusters barely align with GMM’s Gaussian-based groups [12,26].
+
+GMM assumes clusters follow Gaussian distributions, while DBSCAN relies on density estimation—these approaches don’t naturally align well [7,26].
+
+The low FMI confirms that DBSCAN (cosine similarity) is not capturing meaningful structures that other methods are detecting [12].
+
+**Hierarchical vs. GMM (0.441) – Moderate Similarity**
+
+Hierarchical clustering (cosine) and GMM (Euclidean-based Gaussian models) still share some similarities.
+Hierarchical clustering, even with cosine similarity, can still detect some overlapping structures similar to GMM [12,13].
+
+However, since GMM relies on probabilistic Gaussian models, and hierarchical clustering does not, their differences reduce similarity [26].
+
+\newpage
+
+
+# 7. Conclusions
+
+For this dataset, K-Means and Hierarchical Clustering emerged as the most effective clustering methods.
+
+Both K-Means and Hierarchical Clustering consistently identified structured clusters, confirming well-defined patterns in user preferences.
+
+K-Means efficiently partitions data based on Euclidean distance, while Hierarchical Clustering (cosine similarity) captures deeper relationships, making segmentation more robust.
+
+The agreement between K-Means and Hierarchical Clustering suggests that both methods detect meaningful patterns in the data, reinforcing the reliability of the clustering results.
+
+These findings underscore the importance of clustering in understanding user behavior, offering valuable insights for recommendation systems and strategic decision-making.
+
+\newpage
+
+# Bibliography
+
+1.  James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An introduction to statistical learning with applications in R* (2nd ed.). Springer.
+
+2.  Johnson, R. A., & Wichern, D. W. (2007). *Applied multivariate statistical analysis* (6th ed.). Pearson.
+
+3.  Bishop, C. M. (2006). *Pattern Recognition and Machine Learning.* Springer.
+
+4.  Everitt, B., Landau, S., Leese, M., & Stahl, D. (2011). *Cluster analysis* (5th ed.). Wiley.
+
+5.  Han, J., Kamber, M., & Pei, J. (2011). *Data mining: Concepts and techniques* (3rd ed.). Elsevier.
+
+6.  Witten, I. H., & Frank, E. (2005). *Data mining: Practical machine learning tools and techniques* (2nd ed.). Morgan Kaufmann.
+
+7.  Schubert, E., Sander, J., Ester, M., Kriegel, H. P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems (TODS), 42*(3), Article 19, 1–21. <https://doi.org/10.1145/3068335>
+
+8.  Sander, J., Ester, M., Kriegel, H. P., & Xu, X. (1998). Density-based clustering based on hierarchical density estimates. *In Proceedings of the 2nd International Conference on Knowledge Discovery and Data Mining (KDD-98)* (pp. 230–235). AAAI Press.
+
+9.  Datta, P. (2016). *MovieLens 100K Dataset*. Retrieved October 26, 2024, from <https://www.kaggle.com/datasets/prajitdatta/movielens-100k-dataset>
+
+10. Rahmah, N., & Sitanggang, I. S. (2016). Determination of optimal epsilon (Eps) value on DBSCAN algorithm to clustering data on peatland hotspots in Sumatra. *IOP Conference Series: Earth and Environmental Science, 31*(1), 012012
+
+11. Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The elements of statistical learning: Data mining, inference, and prediction* (2nd ed.). Springer.
+
+12. Kriegel, H., Kröger, P., & Zimek, A. (2012). Evaluation of clusterings – Metrics and visual support. *ACM Computing Surveys, 45*(4), 1-31.
+
+13. Fowlkes, E. B., & Mallows, C. L. (1983). A Method for Comparing Two Hierarchical Clusterings. *Journal of the American Statistical Association, 78*(383), 553–569.
+
+14. Harper, F. M., & Konstan, J. A. (2015). The MovieLens datasets: History and context. *ACM Transactions on Interactive Intelligent Systems (TiiS), 5*(4), Article 19. <https://doi.org/10.1145/2827872>
+
+15. Han, J., Kamber, M., & Pei, J. (2011). *Introduction to data mining* (2nd ed.). Pearson.
+
+16. James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An Introduction to Statistical Learning with Applications in R (2nd ed.).* Springer.
+
+17. Ding, C., & He, X. (2004). Cluster structure of K-means clustering via principal component analysis. In H. Dai, R. Srikant, & C. Zhang (Eds.), *Advances in knowledge discovery and data mining* (Vol. 3056, pp. 532–543). Springer.
+
+18. Koren, Y., Bell, R., & Volinsky, C. (2009). Matrix factorization techniques for recommender systems. *Computer Science Review, 29*(1), 24–33. Elsevier.
+
+19. Johnson, R. A., & Wichern, D. W. (2007). *Methods of multivariate analysis* (5th ed.). Wiley.
+
+20. MovieLens Dataset. (2018). Retrieved October 18, 2024, from <https://grouplens.org/datasets/movielens/>
+
+21. Murphy, K. P. (2012). *Machine Learning: A Probabilistic Perspective.* MIT Press.
+
+22. Netflix Prize Dataset. (n.d.). Retrieved October 18, 2024, from [https://www.kaggle.com/competitions/netflix-prize-dat](https://www.kaggle.com/competitions/netflix-prize-data)a
+
+23. Jolliffe, I. T., & Cadima, J. (2016). Principal component analysis: A review and recent developments. *Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences, 374*(2065), 20150202
+
+24. Ricci, F., Rokach, L., & Shapira, B. (2022). *Recommender systems handbook*. Springer.
+
+25. Sander, J., Ester, M., Kriegel, H. P., & Xu, X. (1998). *Density-Based Clustering in Spatial Databases: The Algorithm GDBSCAN and Its Applications.* Data Mining and Knowledge Discovery, 2(2), 169–194.n of K in K-means clustering
+
+26. Scrucca, L., Fop, M., Murphy, T. B., & Raftery, A. E. (2016). *mclust 5: Clustering, Classification and Density Estimation Using Gaussian Finite Mixture Models.* The R Journal, 8(1), 289-317.
+
+27. Pham, D. T., Dimov, S. S., & Nguyen, C. D. (2004). Selection of K in K-means clustering. *Proceedings of the Institution of Mechanical Engineers, Part C: Journal of Mechanical Engineering Science, 218*(6), 753-758.
+
+28. Team RStudio. (2024). *R Markdown*. Retrieved October 26, 2024, from <https://rmarkdown.rstudio.com/>
+
+29. Zaït, M., & Messatfa, H. (1998). A comparative study of clustering methods. *Pattern Recognition Letters, 19*(8), 781-788.
+
+30. Xie, Y. (2024). *knitr: A general-purpose package for dynamic report generation in R*. Retrieved October 26, 2024, from <https://www.rdocumentation.org/packages/knitr/versions/1.48>
